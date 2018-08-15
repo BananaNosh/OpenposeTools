@@ -109,4 +109,6 @@ cache/
 
 # data stuff
 /data/*.zip
+*.mp4
+*.avi
 
