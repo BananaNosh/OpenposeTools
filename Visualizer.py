@@ -13,10 +13,19 @@ def visualize_frame():
 
 pose_seq = [(1, 2), (1, 5), (2, 3), (3, 4), (5, 6), (6, 7), (1, 8), (8, 9), (9, 10),
             (1, 11), (11, 12), (12, 13), (1, 0), (0, 14), (14, 16), (0, 15), (15, 17)]
-# face_seq =
 pose_colors = [[255, 0, 85], [255, 0, 0], [255, 85, 0], [255, 170, 0], [255, 255, 0], [170, 255, 0]] \
               + [[85, 255, 0], [0, 255, 0], [0, 255, 85], [0, 255, 170], [0, 255, 255], [0, 170, 255]] \
-              + [[0, 85, 255], [0, 0, 255], [255, 0, 170], [170, 0, 255], [255, 0, 255], [85, 0, 255]]
+              + [[0, 85, 255], [0, 0, 255], [255, 0, 170], [170, 0, 255], [255, 0, 255]]
+# face_seq =
+hand_seq = list(zip(range(4), range(1, 5))) + [(0, 5)] + list(zip(range(5, 8), range(6, 9))) + [(0, 9)] \
+           + list(zip(range(9, 12), range(10, 13))) + [(0, 13)] + list(zip(range(13, 16), range(14, 17))) \
+           + [(0, 17)] + list(zip(range(17, 20), range(18, 21)))
+hand_colors = [[100, 100, 100], [100, 0, 0], [150, 0, 0], [200, 0, 0], [255, 0, 0], [100, 100, 0]] \
+              + [[150, 150, 0], [200, 200, 0], [255, 255, 0], [0, 100, 50], [0, 150, 75], [0, 200, 100]] \
+              + [[0, 255, 125], [0, 50, 100], [0, 75, 150], [0, 100, 200], [0, 125, 255], [100, 0, 100]] \
+              + [[150, 0, 150], [200, 0, 200], [255, 0, 255]]
+all_seqs = [pose_seq, hand_seq, hand_seq]
+all_colors = [pose_colors, hand_colors, hand_colors]
 
 
 def color_video(json_zip, vid_file, out_file, start=0, end=25000, thickness=8):
@@ -51,18 +60,20 @@ def canvas_for_frame(current_canvas, frame_json, zip_file, thickness = 8):
     for person in people:
         pose_key_points = np.array(person.pose_keypoints_2d).reshape(-1, 3)
         # face_key_points = np.array(person.face_keypoints_2d).reshape(-1, 3)
-        # hand_left_key_points = np.array(person.hand_left_keypoints_2d).reshape(-1, 3)
-        # hand_right_key_points = np.array(person.hand_right_keypoints_2d).reshape(-1, 3)
-        for joints, color in zip(pose_seq, pose_colors):
-            points = pose_key_points[joints, :]
-            x = points[:, 0]
-            y = points[:, 1]
-            c = points[:, 2]
-            if any(c < 0.05):
-                continue
-            canvas_copy = current_canvas.copy()
-            cv2.line(canvas_copy, (int(x[0]), int(y[0])), (int(x[1]), int(y[1])), color, thickness)
-            current_canvas = cv2.addWeighted(current_canvas, 0.1, canvas_copy, 0.9, 0)
+        hand_left_key_points = np.array(person.hand_left_keypoints_2d).reshape(-1, 3)
+        hand_right_key_points = np.array(person.hand_right_keypoints_2d).reshape(-1, 3)
+        all_key_points = [pose_key_points, hand_left_key_points, hand_right_key_points]
+        for key_points, seq, colors in zip(all_key_points, all_seqs, all_colors):
+            for joints, color in zip(seq, colors):
+                points = key_points[joints, :]
+                x = points[:, 0]
+                y = points[:, 1]
+                c = points[:, 2]
+                if any(c < 0.05):
+                    continue
+                canvas_copy = current_canvas.copy()
+                cv2.line(canvas_copy, (int(x[0]), int(y[0])), (int(x[1]), int(y[1])), color, thickness)
+                current_canvas = cv2.addWeighted(current_canvas, 0.1, canvas_copy, 0.9, 0)
     return current_canvas
 
 
