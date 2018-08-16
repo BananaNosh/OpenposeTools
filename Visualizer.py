@@ -83,19 +83,20 @@ def canvas_for_frame(current_canvas, frame_json, zip_file, hd=True):
                 cv2.line(canvas_copy, (int(x[0]), int(y[0])), (int(x[1]), int(y[1])), color, thickness)
                 current_canvas = cv2.addWeighted(current_canvas, 0.1, canvas_copy, 0.9, 0)
                 canvas_copy = current_canvas.copy()
-                cv2.line(canvas_copy, (int(x[0]), int(y[0])), (int(x[0]), int(y[0])), color, thickness=thickness+3)
+                point_size = thickness + (3 if not hd else 12)
+                cv2.line(canvas_copy, (int(x[0]), int(y[0])), (int(x[0]), int(y[0])), color, thickness=point_size)
                 current_canvas = cv2.addWeighted(current_canvas, 0.1, canvas_copy, 0.9, 0)
     return current_canvas
 
 
 if __name__ == '__main__':
     path = os.path.join(".", "data")
-    # video_filename = os.path.join(path, "2018-05-29_2200_US_KNBC_The_Ellen_DeGeneres_Show_672-1147.mp4")
-    # json_zip = os.path.join(path, "2905_small_json.zip")
-    # out_path = os.path.join(path, "test_colored_video_small.avi")
-    video_filename = os.path.join(path, "2018-05"
-                                        "-29_2200_US_KNBC_The_Ellen_DeGeneres_Show_repaired_compressed_only_video_672"
-                                        "-1147_HD.mp4")
-    json_zip = os.path.join(path, "2905_HD_reduced_to_-1_368.zip")
-    out_path = os.path.join(path, "test_colored_video_hd.avi")
+    video_filename = os.path.join(path, "2018-05-29_2200_US_KNBC_The_Ellen_DeGeneres_Show_672-1147.mp4")
+    json_zip = os.path.join(path, "2905_small_json.zip")
+    out_path = os.path.join(path, "test_colored_video_small.avi")
+    # video_filename = os.path.join(path, "2018-05"
+    #                                     "-29_2200_US_KNBC_The_Ellen_DeGeneres_Show_repaired_compressed_only_video_672"
+    #                                     "-1147_HD.mp4")
+    # json_zip = os.path.join(path, "2905_HD_reduced_to_-1_368.zip")
+    # out_path = os.path.join(path, "test_colored_video_hd.avi")
     color_video(json_zip, video_filename, out_path, hd=False)
