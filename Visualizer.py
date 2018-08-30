@@ -77,10 +77,10 @@ def color_video(json_zip, vid_file, out_file, hd=True, max_frames=None):
 
     if splitted:
         # noinspection PyUnboundLocalVariable
-        combine_videos(output_path, True)
+        combine_videos(output_path, False)
 
 
-def combine_videos(path, delete=True):
+def combine_videos(path, delete=False):
     file_names = os.listdir(path)
     file_names.sort(key=lambda _file: [int(s) if s.isdigit() else s for s in re.split(r'(\d+)', _file)])
     if len(file_names) == 0:
@@ -129,12 +129,13 @@ def canvas_for_frame(current_canvas, frame_json, zip_file, hd=True):
 
 if __name__ == '__main__':
     _path = os.path.join(".", "data")
-    _video_filename = os.path.join(_path, "2018-05-29_2200_US_KNBC_The_Ellen_DeGeneres_Show_672-1147.mp4")
-    _json_zip = os.path.join(_path, "2905_small_json.zip")
-    _out_path = os.path.join(_path, "test_colored_video_small.avi")
-    # _video_filename = os.path.join(path, "2018-05"
-    #                                     "-29_2200_US_KNBC_The_Ellen_DeGeneres_Show_repaired_compressed_only_video_672"
-    #                                     "-1147_HD.mp4")
-    # _json_zip = os.path.join(path, "2905_HD_reduced_to_-1_368.zip")
-    # _out_path = os.path.join(path, "test_colored_video_hd.avi")
-    color_video(_json_zip, _video_filename, _out_path, hd=False, max_frames=500)
+    # _video_filename = os.path.join(_path, "2018-05-29_2200_US_KNBC_The_Ellen_DeGeneres_Show_672-1147.mp4")
+    # _json_zip = os.path.join(_path, "2905_small_json.zip")
+    # _out_path = os.path.join(_path, "test_colored_video_small.avi")
+    _video_filename = os.path.join(_path, "2018-05"
+                                        "-29_2200_US_KNBC_The_Ellen_DeGeneres_Show_repaired_compressed_only_video_672"
+                                        "-1147_HD.mp4")
+    _json_zip = os.path.join(_path, "2905_HD_reduced_to_-1_368.zip")
+    _out_path = os.path.join(_path, "test_colored_video_hd.avi")
+    color_video(_json_zip, _video_filename, _out_path, hd=True, max_frames=500)
+    # combine_videos(os.path.join(_path, "splitted"))
