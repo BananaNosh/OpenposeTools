@@ -68,13 +68,13 @@ def color_video(json_zip, vid_file, out_file, hd=True, max_frames=None):
             colored_frames.append(canvas[:, :, [2, 1, 0]])
             if max_frames and (i + 1) % max_frames == 0 and max_frames != frame_count:
                 colored_frames = np.array(colored_frames)
-                io.vwrite(output_wihout_ext + "_" + video_number + output_type, colored_frames)  # WRITE VIDEO
+                io.vwrite("{}{}_{}".format(output_wihout_ext, video_number, output_type), colored_frames)  # WRITE VIDEO
                 video_number += 1
                 colored_frames = []
     if len(colored_frames) > 0:
         colored_frames = np.array(colored_frames)
         video_number = "_" + str(video_number) if splitted else ""
-        io.vwrite(output_wihout_ext + video_number + output_type, colored_frames)  # WRITE VIDEO
+        io.vwrite("{}{}{}".format(output_wihout_ext, video_number, output_type), colored_frames)  # WRITE VIDEO
 
     if splitted:
         # noinspection PyUnboundLocalVariable
