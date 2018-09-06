@@ -53,7 +53,8 @@ def color_video(json_zip, vid_file, out_file, hd=True, max_frames=None):
             output_path, output_name = os.path.split(output_wihout_ext)
             output_path = os.path.join(output_path, "splitted")
             output_wihout_ext = os.path.join(output_path, output_name)
-            os.mkdir(output_path)
+            if not os.path.isdir(output_path):
+                os.mkdir(output_path)
         json_files = json_files[:frame_count]
         video_number = 1
         for i, file_name in enumerate(json_files):
@@ -67,13 +68,13 @@ def color_video(json_zip, vid_file, out_file, hd=True, max_frames=None):
             colored_frames.append(canvas[:, :, [2, 1, 0]])
             if max_frames and (i + 1) % max_frames == 0 and max_frames != frame_count:
                 colored_frames = np.array(colored_frames)
-                io.vwrite(f"{output_wihout_ext}_{video_number}{output_type}", colored_frames)  # WRITE VIDEO
+                io.vwrite(output_wihout_ext + "_" + video_number + output_type, colored_frames)  # WRITE VIDEO
                 video_number += 1
                 colored_frames = []
     if len(colored_frames) > 0:
         colored_frames = np.array(colored_frames)
         video_number = "_" + str(video_number) if splitted else ""
-        io.vwrite(f"{output_wihout_ext}{video_number}{output_type}", colored_frames)  # WRITE VIDEO
+        io.vwrite(output_wihout_ext + video_number + output_type, colored_frames)  # WRITE VIDEO
 
     if splitted:
         # noinspection PyUnboundLocalVariable
