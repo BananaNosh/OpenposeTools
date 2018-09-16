@@ -7,6 +7,7 @@ import os
 from skvideo import io
 from moviepy.editor import VideoFileClip, concatenate_videoclips
 import re
+import time
 
 
 def visualize_frame():
@@ -43,6 +44,8 @@ def color_video(json_zip, vid_file, out_file, hd=True, max_frames=None):
     frame_count = int(video_capture.get(cv2.CAP_PROP_FRAME_COUNT))
     print(frame_count)
     colored_frames = []
+    last_time = time.time()
+    total_time = 0
     with zipfile.ZipFile(json_zip) as zip_file:
         json_files = [file for file in zip_file.namelist() if file.endswith(".json")]
         json_files.sort()
@@ -67,6 +70,11 @@ def color_video(json_zip, vid_file, out_file, hd=True, max_frames=None):
             canvas = cv2.addWeighted(canvas, 0.1, written_canvas, 0.9, 0)
             colored_frames.append(canvas[:, :, [2, 1, 0]])
             if max_frames and (i + 1) % max_frames == 0 and max_frames != frame_count:
+                current_time = time.time()
+                needed_time = current_time - last_time
+                total_time += needed_time
+                print("Needed {} s".format(needed_time))
+                last_time = current_time
                 colored_frames = np.array(colored_frames)
                 io.vwrite("{}{}_{}".format(output_wihout_ext, video_number, output_type), colored_frames)  # WRITE VIDEO
                 video_number += 1
@@ -79,6 +87,7 @@ def color_video(json_zip, vid_file, out_file, hd=True, max_frames=None):
     if splitted:
         # noinspection PyUnboundLocalVariable
         combine_videos(output_path, False)
+    print(total_time)
 
 
 def combine_videos(path, delete=False):
@@ -101,7 +110,7 @@ def combine_videos(path, delete=False):
 
 def canvas_for_frame(current_canvas, frame_json, zip_file, hd=True):
     with zip_file.open(frame_json, "r") as json_file:
-        json_obj = json.loads(json_file.read(), object_hook=lambda d: Namespace(**d))
+        json_obj = json.loads(json_file.read().decode("utf-8"), object_hook=lambda d: Namespace(**d))
     people = json_obj.people
     for person in people:
         pose_key_points = np.array(person.pose_keypoints_2d).reshape(-1, 3)
