@@ -40,7 +40,8 @@ all_colors = [pose_colors, face_colors, hand_colors, hand_colors]
 
 def color_video(json_zip, vid_file, out_file, hd=True, max_frames=None, frame_range=None):
     video_capture = cv2.VideoCapture(vid_file)
-    output_wihout_ext, output_type = os.path.splitext(out_file)
+    output_without_ext, output_type = os.path.splitext(out_file)
+    frame_count, fps, _, _ = get_video_information(video_capture)
     frame_count = int(video_capture.get(cv2.CAP_PROP_FRAME_COUNT))
     fps = video_capture.get(cv2.CAP_PROP_FPS)
     print(frame_count)
@@ -54,9 +55,9 @@ def color_video(json_zip, vid_file, out_file, hd=True, max_frames=None, frame_ra
         frame_count = min(frame_count, json_count)
         splitted = max_frames and max_frames < frame_count
         if splitted:
-            output_path, output_name = os.path.split(output_wihout_ext)
+            output_path, output_name = os.path.split(output_without_ext)
             output_path = os.path.join(output_path, "splitted")
-            output_wihout_ext = os.path.join(output_path, output_name)
+            output_without_ext = os.path.join(output_path, output_name)
             if not os.path.isdir(output_path):
                 os.mkdir(output_path)
         json_files = json_files[:frame_count]
@@ -84,12 +85,12 @@ def color_video(json_zip, vid_file, out_file, hd=True, max_frames=None, frame_ra
                 print("Needed {} s".format(needed_time))
                 last_time = current_time
                 colored_frames = np.array(colored_frames)
-                write_file(colored_frames, fps, output_type, output_wihout_ext, video_number)
+                write_file(colored_frames, fps, output_type, output_without_ext, video_number)
                 colored_frames = []
     if len(colored_frames) > 0:
         colored_frames = np.array(colored_frames)
         video_number = video_number + 1 if splitted else None
-        write_file(colored_frames, fps, output_type, output_wihout_ext, video_number)
+        write_file(colored_frames, fps, output_type, output_without_ext, video_number)
 
     if splitted:
         # noinspection PyUnboundLocalVariable
@@ -100,13 +101,23 @@ def color_video(json_zip, vid_file, out_file, hd=True, max_frames=None, frame_ra
 def write_file(colored_frames, fps, output_type, output_wihout_ext, video_number):
     name = "{}_{}{}".format(output_wihout_ext, video_number, output_type) \
         if video_number else "{}{}".format(output_wihout_ext, output_type)
-    fps_string = "{}/1000".format(fps * 100)
-    io.vwrite(name, colored_frames)  # WRITE VIDEO
-    # writer = cv2.VideoWriter(filename="{}{}_{}".format(output_wihout_ext, video_number, output_type),
-    #                          fourcc=cv2.VideoWriter.fourcc("a", "v", "c", "1"), fps=29970,
-    #                          frameSize=(640, 360), apiPreference=0)
+    fps_string = "{:.2f}".format(fps)
+    io.vwrite(name, colored_frames, outputdict={"-r": fps_string})  # WRITE VIDEO
+    # writer = cv2.VideoWriter(filename=name, fourcc=828601953, fps=29970,
+    #                          frameSize=(640, 360))
     # writer.write(colored_frames)
     print("written to {}".format(name))
+
+
+def get_video_information(video_capture):
+    frame_count = int(video_capture.get(cv2.CAP_PROP_FRAME_COUNT))
+    fps = video_capture.get(cv2.CAP_PROP_FPS)
+    current_frame = video_capture.get(cv2.CAP_PROP_POS_FRAMES)
+    video_capture.set(cv2.CAP_PROP_POS_FRAMES, frame_count)
+    total_time = video_capture.get(cv2.CAP_PROP_POS_MSEC)
+    time_per_frame = total_time / frame_count
+    video_capture.set(cv2.CAP_PROP_POS_FRAMES, current_frame)
+    return frame_count, fps, time_per_frame, total_time
 
 
 def canvas_for_frame(current_canvas, frame_json, zip_file, hd=True):
@@ -164,5 +175,5 @@ if __name__ == '__main__':
     #                                     "-1147_HD.mp4")
     # _json_zip = os.path.join(_path, "2905_HD_reduced_to_-1_368.zip")
     # _out_path = os.path.join(_path, "test_colored_video_hd.avi")
-    color_video(_json_zip, _video_filename, _out_path, hd=False, max_frames=100, frame_range=range(200, 400))
+    color_video(_json_zip, _video_filename, _out_path, hd=False, max_frames=100)
     # combine_videos(os.path.join(_path, "splitted"))
