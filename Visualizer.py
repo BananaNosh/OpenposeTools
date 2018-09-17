@@ -38,10 +38,11 @@ all_seqs = [pose_seq, face_seq, hand_seq, hand_seq]
 all_colors = [pose_colors, face_colors, hand_colors, hand_colors]
 
 
-def color_video(json_zip, vid_file, out_file, hd=True, max_frames=None):
+def color_video(json_zip, vid_file, out_file, hd=True, max_frames=None, frame_range=None):
     video_capture = cv2.VideoCapture(vid_file)
     output_wihout_ext, output_type = os.path.splitext(out_file)
     frame_count = int(video_capture.get(cv2.CAP_PROP_FRAME_COUNT))
+    fps = video_capture.get(cv2.CAP_PROP_FPS)
     print(frame_count)
     colored_frames = []
     last_time = time.time()
@@ -51,7 +52,7 @@ def color_video(json_zip, vid_file, out_file, hd=True, max_frames=None):
         json_files.sort()
         json_count = len(json_files)
         frame_count = min(frame_count, json_count)
-        splitted = max_frames < frame_count
+        splitted = max_frames and max_frames < frame_count
         if splitted:
             output_path, output_name = os.path.split(output_wihout_ext)
             output_path = os.path.join(output_path, "splitted")
@@ -59,10 +60,17 @@ def color_video(json_zip, vid_file, out_file, hd=True, max_frames=None):
             if not os.path.isdir(output_path):
                 os.mkdir(output_path)
         json_files = json_files[:frame_count]
-        video_number = 1
-        for i, file_name in enumerate(json_files):
-            ret, canvas = video_capture.read()
+        enumerating = enumerate(json_files) if not frame_range \
+            else zip(frame_range, json_files[frame_range.start:frame_range.stop:frame_range.step])
+        if frame_range:
+            video_capture.set(cv2.CAP_PROP_POS_FRAMES, frame_range.start)
+        video_number = None
+        for i, file_name in enumerating:
             print(i)
+            print("time", video_capture.get(cv2.CAP_PROP_POS_MSEC))
+            print("frame", video_capture.get(cv2.CAP_PROP_POS_FRAMES))
+            video_number = (i + 1) // max_frames if max_frames else None
+            ret, canvas = video_capture.read()
             if canvas is None:
                 print("No canvas for file: ", file_name)
                 break
@@ -76,18 +84,56 @@ def color_video(json_zip, vid_file, out_file, hd=True, max_frames=None):
                 print("Needed {} s".format(needed_time))
                 last_time = current_time
                 colored_frames = np.array(colored_frames)
-                io.vwrite("{}{}_{}".format(output_wihout_ext, video_number, output_type), colored_frames)  # WRITE VIDEO
-                video_number += 1
+                write_file(colored_frames, fps, output_type, output_wihout_ext, video_number)
                 colored_frames = []
     if len(colored_frames) > 0:
         colored_frames = np.array(colored_frames)
-        video_number = "_" + str(video_number) if splitted else ""
-        io.vwrite("{}{}{}".format(output_wihout_ext, video_number, output_type), colored_frames)  # WRITE VIDEO
+        video_number = video_number + 1 if splitted else None
+        write_file(colored_frames, fps, output_type, output_wihout_ext, video_number)
 
     if splitted:
         # noinspection PyUnboundLocalVariable
         combine_videos(output_path, False)
     print(total_time)
+
+
+def write_file(colored_frames, fps, output_type, output_wihout_ext, video_number):
+    name = "{}_{}{}".format(output_wihout_ext, video_number, output_type) \
+        if video_number else "{}{}".format(output_wihout_ext, output_type)
+    fps_string = "{}/1000".format(fps * 100)
+    io.vwrite(name, colored_frames)  # WRITE VIDEO
+    # writer = cv2.VideoWriter(filename="{}{}_{}".format(output_wihout_ext, video_number, output_type),
+    #                          fourcc=cv2.VideoWriter.fourcc("a", "v", "c", "1"), fps=29970,
+    #                          frameSize=(640, 360), apiPreference=0)
+    # writer.write(colored_frames)
+    print("written to {}".format(name))
+
+
+def canvas_for_frame(current_canvas, frame_json, zip_file, hd=True):
+    with zip_file.open(frame_json, "r") as json_file:
+        json_obj = json.loads(json_file.read().decode("utf-8"), object_hook=lambda d: Namespace(**d))
+    canvas_copy = current_canvas.copy()
+    people = json_obj.people
+    for person in people:
+        pose_key_points = np.array(person.pose_keypoints_2d).reshape(-1, 3)
+        face_key_points = np.array(person.face_keypoints_2d).reshape(-1, 3)
+        hand_left_key_points = np.array(person.hand_left_keypoints_2d).reshape(-1, 3)
+        hand_right_key_points = np.array(person.hand_right_keypoints_2d).reshape(-1, 3)
+        all_key_points = [pose_key_points, face_key_points, hand_left_key_points, hand_right_key_points]
+        thick = all_thickness[0] if not hd else all_thickness[1]
+        for key_points, seq, colors, thickness in zip(all_key_points, all_seqs, all_colors, thick):
+            for joints, color in zip(seq, colors):
+                points = key_points[joints, :]
+                x = points[:, 0]
+                y = points[:, 1]
+                c = points[:, 2]
+                if any(c < 0.05):
+                    continue
+                cv2.line(canvas_copy, (int(x[0]), int(y[0])), (int(x[1]), int(y[1])), color, thickness)
+                point_size = thickness + (3 if not hd else 12)
+                cv2.line(canvas_copy, (int(x[0]), int(y[0])), (int(x[0]), int(y[0])), color, thickness=point_size)
+    current_canvas = cv2.addWeighted(current_canvas, 0.1, canvas_copy, 0.9, 0)
+    return current_canvas
 
 
 def combine_videos(path, delete=False):
@@ -108,44 +154,15 @@ def combine_videos(path, delete=False):
         os.rmdir(path)
 
 
-def canvas_for_frame(current_canvas, frame_json, zip_file, hd=True):
-    with zip_file.open(frame_json, "r") as json_file:
-        json_obj = json.loads(json_file.read().decode("utf-8"), object_hook=lambda d: Namespace(**d))
-    people = json_obj.people
-    for person in people:
-        pose_key_points = np.array(person.pose_keypoints_2d).reshape(-1, 3)
-        face_key_points = np.array(person.face_keypoints_2d).reshape(-1, 3)
-        hand_left_key_points = np.array(person.hand_left_keypoints_2d).reshape(-1, 3)
-        hand_right_key_points = np.array(person.hand_right_keypoints_2d).reshape(-1, 3)
-        all_key_points = [pose_key_points, face_key_points, hand_left_key_points, hand_right_key_points]
-        thick = all_thickness[0] if not hd else all_thickness[1]
-        for key_points, seq, colors, thickness in zip(all_key_points, all_seqs, all_colors, thick):
-            for joints, color in zip(seq, colors):
-                points = key_points[joints, :]
-                x = points[:, 0]
-                y = points[:, 1]
-                c = points[:, 2]
-                if any(c < 0.05):
-                    continue
-                canvas_copy = current_canvas.copy()
-                cv2.line(canvas_copy, (int(x[0]), int(y[0])), (int(x[1]), int(y[1])), color, thickness)
-                current_canvas = cv2.addWeighted(current_canvas, 0.1, canvas_copy, 0.9, 0)
-                canvas_copy = current_canvas.copy()
-                point_size = thickness + (3 if not hd else 12)
-                cv2.line(canvas_copy, (int(x[0]), int(y[0])), (int(x[0]), int(y[0])), color, thickness=point_size)
-                current_canvas = cv2.addWeighted(current_canvas, 0.1, canvas_copy, 0.9, 0)
-    return current_canvas
-
-
 if __name__ == '__main__':
     _path = os.path.join(".", "data")
-    # _video_filename = os.path.join(_path, "2018-05-29_2200_US_KNBC_The_Ellen_DeGeneres_Show_672-1147.mp4")
-    # _json_zip = os.path.join(_path, "2905_small_json.zip")
-    # _out_path = os.path.join(_path, "test_colored_video_small.avi")
-    _video_filename = os.path.join(_path, "2018-05"
-                                        "-29_2200_US_KNBC_The_Ellen_DeGeneres_Show_repaired_compressed_only_video_672"
-                                        "-1147_HD.mp4")
-    _json_zip = os.path.join(_path, "2905_HD_reduced_to_-1_368.zip")
-    _out_path = os.path.join(_path, "test_colored_video_hd.avi")
-    color_video(_json_zip, _video_filename, _out_path, hd=True, max_frames=500)
+    _video_filename = os.path.join(_path, "2018-05-29_2200_US_KNBC_The_Ellen_DeGeneres_Show_672-1147.mp4")
+    _json_zip = os.path.join(_path, "2905_small_json.zip")
+    _out_path = os.path.join(_path, "test_colored_video_small.avi")
+    # _video_filename = os.path.join(_path, "2018-05"
+    #                                     "-29_2200_US_KNBC_The_Ellen_DeGeneres_Show_repaired_compressed_only_video_672"
+    #                                     "-1147_HD.mp4")
+    # _json_zip = os.path.join(_path, "2905_HD_reduced_to_-1_368.zip")
+    # _out_path = os.path.join(_path, "test_colored_video_hd.avi")
+    color_video(_json_zip, _video_filename, _out_path, hd=False, max_frames=100, frame_range=range(200, 400))
     # combine_videos(os.path.join(_path, "splitted"))
