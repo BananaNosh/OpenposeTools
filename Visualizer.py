@@ -4,10 +4,12 @@ import json
 from types import SimpleNamespace as Namespace
 import numpy as np
 import os
-from skvideo import io
-from moviepy.editor import VideoFileClip, concatenate_videoclips
 import re
 import time
+import argparse
+from skvideo import io
+from moviepy.editor import VideoFileClip, concatenate_videoclips
+
 
 
 def visualize_frame():
@@ -38,12 +40,11 @@ all_seqs = [pose_seq, face_seq, hand_seq, hand_seq]
 all_colors = [pose_colors, face_colors, hand_colors, hand_colors]
 
 
-def color_video(json_zip, vid_file, out_file, hd=True, max_frames=None, frame_range=None):
+def color_video(json_zip, vid_file, out_file, temp_folder, max_frames=None, frame_range=None):
     video_capture = cv2.VideoCapture(vid_file)
     output_without_ext, output_type = os.path.splitext(out_file)
+    temp_name = os.path.join(temp_folder, os.path.basename(output_without_ext))
     frame_count, fps, _, _ = get_video_information(video_capture)
-    frame_count = int(video_capture.get(cv2.CAP_PROP_FRAME_COUNT))
-    fps = video_capture.get(cv2.CAP_PROP_FPS)
     print(frame_count)
     colored_frames = []
     last_time = time.time()
@@ -55,11 +56,9 @@ def color_video(json_zip, vid_file, out_file, hd=True, max_frames=None, frame_ra
         frame_count = min(frame_count, json_count)
         splitted = max_frames and max_frames < frame_count
         if splitted:
-            output_path, output_name = os.path.split(output_without_ext)
-            output_path = os.path.join(output_path, "splitted")
-            output_without_ext = os.path.join(output_path, output_name)
-            if not os.path.isdir(output_path):
-                os.mkdir(output_path)
+            if not os.path.isdir(temp_folder):
+                os.mkdir(temp_folder)
+            # TODO what if not empy
         json_files = json_files[:frame_count]
         enumerating = enumerate(json_files) if not frame_range \
             else zip(frame_range, json_files[frame_range.start:frame_range.stop:frame_range.step])
@@ -68,14 +67,12 @@ def color_video(json_zip, vid_file, out_file, hd=True, max_frames=None, frame_ra
         video_number = None
         for i, file_name in enumerating:
             print(i)
-            print("time", video_capture.get(cv2.CAP_PROP_POS_MSEC))
-            print("frame", video_capture.get(cv2.CAP_PROP_POS_FRAMES))
             video_number = (i + 1) // max_frames if max_frames else None
             ret, canvas = video_capture.read()
             if canvas is None:
                 print("No canvas for file: ", file_name)
                 break
-            written_canvas = canvas_for_frame(canvas, file_name, zip_file, hd=hd)
+            written_canvas = canvas_for_frame(canvas, file_name, zip_file, hd=False) # TODO HD
             canvas = cv2.addWeighted(canvas, 0.1, written_canvas, 0.9, 0)
             colored_frames.append(canvas[:, :, [2, 1, 0]])
             if max_frames and (i + 1) % max_frames == 0 and max_frames != frame_count:
@@ -85,16 +82,16 @@ def color_video(json_zip, vid_file, out_file, hd=True, max_frames=None, frame_ra
                 print("Needed {} s".format(needed_time))
                 last_time = current_time
                 colored_frames = np.array(colored_frames)
-                write_file(colored_frames, fps, output_type, output_without_ext, video_number)
+                write_file(colored_frames, fps, output_type, temp_name, video_number)
                 colored_frames = []
     if len(colored_frames) > 0:
         colored_frames = np.array(colored_frames)
         video_number = video_number + 1 if splitted else None
-        write_file(colored_frames, fps, output_type, output_without_ext, video_number)
+        write_file(colored_frames, fps, output_type, temp_name, video_number)
 
     if splitted:
         # noinspection PyUnboundLocalVariable
-        combine_videos(output_path, False)
+        combine_videos(out_file, temp_folder, False)
     print(total_time)
 
 
@@ -102,10 +99,8 @@ def write_file(colored_frames, fps, output_type, output_wihout_ext, video_number
     name = "{}_{}{}".format(output_wihout_ext, video_number, output_type) \
         if video_number else "{}{}".format(output_wihout_ext, output_type)
     fps_string = "{:.2f}".format(fps)
-    io.vwrite(name, colored_frames, outputdict={"-r": fps_string})  # WRITE VIDEO
-    # writer = cv2.VideoWriter(filename=name, fourcc=828601953, fps=29970,
-    #                          frameSize=(640, 360))
-    # writer.write(colored_frames)
+    io.vwrite(name, colored_frames, inputdict={"-framerate": fps_string},
+              outputdict={"-r": fps_string})  # WRITE VIDEO
     print("written to {}".format(name))
 
 
@@ -147,33 +142,45 @@ def canvas_for_frame(current_canvas, frame_json, zip_file, hd=True):
     return current_canvas
 
 
-def combine_videos(path, delete=False):
-    file_names = os.listdir(path)
+def combine_videos(outfile, temp_path, delete=False):
+    file_names = os.listdir(temp_path)
     file_names.sort(key=lambda _file: [int(s) if s.isdigit() else s for s in re.split(r'(\d+)', _file)])
     if len(file_names) == 0:
         return
-    total_file_names = [os.path.join(path, video_name) for video_name in file_names]
+    total_file_names = [os.path.join(temp_path, video_name) for video_name in file_names]
     video_clips = [VideoFileClip(video_name) for video_name in total_file_names]
     final_clip = concatenate_videoclips(video_clips)
-    new_path, _ = os.path.split(path)
-    file_name, ext = os.path.splitext(file_names[0])
-    new_name = os.path.join(new_path, file_name[:-2] + ".mp4")
-    final_clip.write_videofile(new_name)
+    final_clip.write_videofile(outfile)
     if delete:
         for file in total_file_names:
             os.remove(file)
-        os.rmdir(path)
+        os.rmdir(temp_path)  # TODO not delete always
 
 
 if __name__ == '__main__':
-    _path = os.path.join(".", "data")
-    _video_filename = os.path.join(_path, "2018-05-29_2200_US_KNBC_The_Ellen_DeGeneres_Show_672-1147.mp4")
-    _json_zip = os.path.join(_path, "2905_small_json.zip")
-    _out_path = os.path.join(_path, "test_colored_video_small.avi")
+    # _path = os.path.join(".", "data")
+    # _video_filename = os.path.join(_path, "2018-05-29_2200_US_KNBC_The_Ellen_DeGeneres_Show_672-1147.mp4")
+    # _json_zip = os.path.join(_path, "2905_small_json.zip")
+    # _out_path = os.path.join(_path, "test_colored_video_small.avi")
     # _video_filename = os.path.join(_path, "2018-05"
     #                                     "-29_2200_US_KNBC_The_Ellen_DeGeneres_Show_repaired_compressed_only_video_672"
     #                                     "-1147_HD.mp4")
     # _json_zip = os.path.join(_path, "2905_HD_reduced_to_-1_368.zip")
     # _out_path = os.path.join(_path, "test_colored_video_hd.avi")
-    color_video(_json_zip, _video_filename, _out_path, hd=False, max_frames=100)
+    # color_video(_json_zip, _video_filename, _out_path, hd=True, max_frames=100, frame_range=range(500))
     # combine_videos(os.path.join(_path, "splitted"))
+
+    parser = argparse.ArgumentParser(description='Draw the lines given with the json data on to the given video.')
+    parser.add_argument("videofile", type=argparse.FileType(mode="r"), help="the video file to write on")
+    parser.add_argument("json", type=argparse.FileType(mode="r"), help="the zip of json files with the data for each frame")
+    parser.add_argument("outfile", help='the output file')
+    parser.add_argument("-t --temp", metavar='tempfolder', dest="temp", help="folder for saving the temp files")
+    args = parser.parse_args()
+    video, json_zip, out, temp = args.videofile.name, args.json.name, args.outfile, args.temp
+    _, out_extension = os.path.splitext(out)
+    if out_extension != ".mp4":
+        print("So far only .mp4 extension allowed for outfile!")
+        exit(-1)
+    if not temp:
+        temp = os.path.join(".", "data", "splitted")  # TODO
+    color_video(json_zip, video, out, temp_folder=temp, max_frames=100, frame_range=range(500))
