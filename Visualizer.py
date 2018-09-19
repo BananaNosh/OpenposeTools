@@ -6,13 +6,13 @@ import numpy as np
 import os
 import re
 import argparse
+import tempfile
 import sys
 from skvideo import io
 from moviepy.editor import VideoFileClip, concatenate_videoclips
 
 
 HD_THRESHOLD = 1300
-GENERATED_FOLDER_INSIDE_TEMP = "OpenPoseToolsSplittedVideos"
 ALL_THICKNESS = [[2, 1, 2, 2], [8, 4, 6, 6]]
 POSE_SEQ = [(1, 2), (1, 5), (2, 3), (3, 4), (5, 6), (6, 7), (1, 8), (8, 9), (9, 10),
             (1, 11), (11, 12), (12, 13), (1, 0), (0, 14), (14, 16), (0, 15), (15, 17)]
@@ -114,11 +114,8 @@ def canvas_for_frame(current_canvas, frame_json, zip_file):
 def generate_temp_folder(temp_folder):
     if not os.path.isdir(temp_folder):
         os.mkdir(temp_folder)
-    temp_folder = os.path.join(temp_folder, GENERATED_FOLDER_INSIDE_TEMP)
-    if os.path.isdir(temp_folder):
-        remove_all_files_in_folder(temp_folder)
-    else:
-        os.mkdir(temp_folder)
+    elif len(os.listdir(temp_folder)) > 0:
+        temp_folder = tempfile.mkdtemp(dir=temp_folder)
     return temp_folder
 
 
@@ -153,9 +150,6 @@ def combine_videos(outfile, temp_path, delete=False):
     if delete:
         remove_all_files_in_folder(temp_path)
         os.rmdir(temp_path)
-        super_temp_folder = os.path.split(temp_path)[0]
-        if len(os.listdir(super_temp_folder)) == 0:
-            os.rmdir(super_temp_folder)
 
 
 if __name__ == '__main__':
@@ -172,5 +166,5 @@ if __name__ == '__main__':
         print("So far only .mp4 extension allowed for outfile!")
         exit(-1)
     if not temp:
-        temp = os.path.join(".", "data", "splitted")  # TODO
+        temp = tempfile.mkdtemp()
     color_video(json_zip, video, out, temp_folder=temp, max_frames=100, frame_range=range(500))
