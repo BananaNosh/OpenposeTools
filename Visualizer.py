@@ -5,60 +5,53 @@ from types import SimpleNamespace as Namespace
 import numpy as np
 import os
 import re
-import time
 import argparse
+import sys
 from skvideo import io
 from moviepy.editor import VideoFileClip, concatenate_videoclips
 
 
-
-def visualize_frame():
-    pass
-
-
-all_thickness = [[2, 1, 2, 2], [8, 4, 6, 6]]
-pose_seq = [(1, 2), (1, 5), (2, 3), (3, 4), (5, 6), (6, 7), (1, 8), (8, 9), (9, 10),
+HD_THRESHOLD = 1300
+GENERATED_FOLDER_INSIDE_TEMP = "OpenPoseToolsSplittedVideos"
+ALL_THICKNESS = [[2, 1, 2, 2], [8, 4, 6, 6]]
+POSE_SEQ = [(1, 2), (1, 5), (2, 3), (3, 4), (5, 6), (6, 7), (1, 8), (8, 9), (9, 10),
             (1, 11), (11, 12), (12, 13), (1, 0), (0, 14), (14, 16), (0, 15), (15, 17)]
-pose_colors = [[255, 0, 85], [255, 0, 0], [255, 85, 0], [255, 170, 0], [255, 255, 0], [170, 255, 0]] \
+POSE_COLORS = [[255, 0, 85], [255, 0, 0], [255, 85, 0], [255, 170, 0], [255, 255, 0], [170, 255, 0]] \
               + [[85, 255, 0], [0, 255, 0], [0, 255, 85], [0, 255, 170], [0, 255, 255], [0, 170, 255]] \
               + [[0, 85, 255], [0, 0, 255], [255, 0, 170], [170, 0, 255], [255, 0, 255]]
-face_seq = list(zip(range(16), range(1, 17))) + list(zip(range(17, 21), range(18, 22)))\
+FACE_SEQ = list(zip(range(16), range(1, 17))) + list(zip(range(17, 21), range(18, 22))) \
            + list(zip(range(22, 26), range(23, 27))) + list(zip(range(27, 30), range(28, 31))) \
            + list(zip(range(31, 35), range(32, 36))) + list(zip(range(36, 41), range(37, 42))) \
            + [(41, 36)] + list(zip(range(42, 47), range(43, 48))) + [(47, 42)] \
            + list(zip(range(48, 59), range(49, 60))) + [(59, 48)] \
            + list(zip(range(60, 67), range(61, 68))) + [(67, 60)]
-face_colors = [[255, 255, 255]] * 68
-hand_seq = list(zip(range(4), range(1, 5))) + [(0, 5)] + list(zip(range(5, 8), range(6, 9))) + [(0, 9)] \
+FACE_COLORS = [[255, 255, 255]] * 68
+HAND_SEQ = list(zip(range(4), range(1, 5))) + [(0, 5)] + list(zip(range(5, 8), range(6, 9))) + [(0, 9)] \
            + list(zip(range(9, 12), range(10, 13))) + [(0, 13)] + list(zip(range(13, 16), range(14, 17))) \
            + [(0, 17)] + list(zip(range(17, 20), range(18, 21)))
-hand_colors = [[100, 100, 100], [100, 0, 0], [150, 0, 0], [200, 0, 0], [255, 0, 0], [100, 100, 0]] \
+HAND_COLORS = [[100, 100, 100], [100, 0, 0], [150, 0, 0], [200, 0, 0], [255, 0, 0], [100, 100, 0]] \
               + [[150, 150, 0], [200, 200, 0], [255, 255, 0], [0, 100, 50], [0, 150, 75], [0, 200, 100]] \
               + [[0, 255, 125], [0, 50, 100], [0, 75, 150], [0, 100, 200], [0, 125, 255], [100, 0, 100]] \
               + [[150, 0, 150], [200, 0, 200], [255, 0, 255]]
-all_seqs = [pose_seq, face_seq, hand_seq, hand_seq]
-all_colors = [pose_colors, face_colors, hand_colors, hand_colors]
+ALL_SEQS = [POSE_SEQ, FACE_SEQ, HAND_SEQ, HAND_SEQ]
+ALL_COLORS = [POSE_COLORS, FACE_COLORS, HAND_COLORS, HAND_COLORS]
 
 
-def color_video(json_zip, vid_file, out_file, temp_folder, max_frames=None, frame_range=None):
+def color_video(frames_json_zip, vid_file, out_file, temp_folder, max_frames=None, frame_range=None):
     video_capture = cv2.VideoCapture(vid_file)
     output_without_ext, output_type = os.path.splitext(out_file)
-    temp_name = os.path.join(temp_folder, os.path.basename(output_without_ext))
-    frame_count, fps, _, _ = get_video_information(video_capture)
-    print(frame_count)
+    frame_count = int(video_capture.get(cv2.CAP_PROP_FRAME_COUNT))
+    fps = video_capture.get(cv2.CAP_PROP_FPS)
     colored_frames = []
-    last_time = time.time()
-    total_time = 0
-    with zipfile.ZipFile(json_zip) as zip_file:
+    with zipfile.ZipFile(frames_json_zip) as zip_file:
         json_files = [file for file in zip_file.namelist() if file.endswith(".json")]
         json_files.sort()
         json_count = len(json_files)
         frame_count = min(frame_count, json_count)
         splitted = max_frames and max_frames < frame_count
         if splitted:
-            if not os.path.isdir(temp_folder):
-                os.mkdir(temp_folder)
-            # TODO what if not empy
+            temp_folder = generate_temp_folder(temp_folder)
+        temp_name = os.path.join(temp_folder, os.path.basename(output_without_ext))
         json_files = json_files[:frame_count]
         enumerating = enumerate(json_files) if not frame_range \
             else zip(frame_range, json_files[frame_range.start:frame_range.stop:frame_range.step])
@@ -66,21 +59,19 @@ def color_video(json_zip, vid_file, out_file, temp_folder, max_frames=None, fram
             video_capture.set(cv2.CAP_PROP_POS_FRAMES, frame_range.start)
         video_number = None
         for i, file_name in enumerating:
-            print(i)
+            if i % 10 == 0:
+                print("{}/{} frames ready       ".format(i, frame_count), end='\r')
+                sys.stdout.flush()
             video_number = (i + 1) // max_frames if max_frames else None
             ret, canvas = video_capture.read()
             if canvas is None:
+                print("")
                 print("No canvas for file: ", file_name)
                 break
-            written_canvas = canvas_for_frame(canvas, file_name, zip_file, hd=False) # TODO HD
+            written_canvas = canvas_for_frame(canvas, file_name, zip_file)
             canvas = cv2.addWeighted(canvas, 0.1, written_canvas, 0.9, 0)
             colored_frames.append(canvas[:, :, [2, 1, 0]])
             if max_frames and (i + 1) % max_frames == 0 and max_frames != frame_count:
-                current_time = time.time()
-                needed_time = current_time - last_time
-                total_time += needed_time
-                print("Needed {} s".format(needed_time))
-                last_time = current_time
                 colored_frames = np.array(colored_frames)
                 write_file(colored_frames, fps, output_type, temp_name, video_number)
                 colored_frames = []
@@ -88,34 +79,12 @@ def color_video(json_zip, vid_file, out_file, temp_folder, max_frames=None, fram
         colored_frames = np.array(colored_frames)
         video_number = video_number + 1 if splitted else None
         write_file(colored_frames, fps, output_type, temp_name, video_number)
-
     if splitted:
-        # noinspection PyUnboundLocalVariable
-        combine_videos(out_file, temp_folder, False)
-    print(total_time)
+        combine_videos(out_file, temp_folder, True)
 
 
-def write_file(colored_frames, fps, output_type, output_wihout_ext, video_number):
-    name = "{}_{}{}".format(output_wihout_ext, video_number, output_type) \
-        if video_number else "{}{}".format(output_wihout_ext, output_type)
-    fps_string = "{:.2f}".format(fps)
-    io.vwrite(name, colored_frames, inputdict={"-framerate": fps_string},
-              outputdict={"-r": fps_string})  # WRITE VIDEO
-    print("written to {}".format(name))
-
-
-def get_video_information(video_capture):
-    frame_count = int(video_capture.get(cv2.CAP_PROP_FRAME_COUNT))
-    fps = video_capture.get(cv2.CAP_PROP_FPS)
-    current_frame = video_capture.get(cv2.CAP_PROP_POS_FRAMES)
-    video_capture.set(cv2.CAP_PROP_POS_FRAMES, frame_count)
-    total_time = video_capture.get(cv2.CAP_PROP_POS_MSEC)
-    time_per_frame = total_time / frame_count
-    video_capture.set(cv2.CAP_PROP_POS_FRAMES, current_frame)
-    return frame_count, fps, time_per_frame, total_time
-
-
-def canvas_for_frame(current_canvas, frame_json, zip_file, hd=True):
+def canvas_for_frame(current_canvas, frame_json, zip_file):
+    hd = current_canvas.shape[1] > HD_THRESHOLD
     with zip_file.open(frame_json, "r") as json_file:
         json_obj = json.loads(json_file.read().decode("utf-8"), object_hook=lambda d: Namespace(**d))
     canvas_copy = current_canvas.copy()
@@ -126,8 +95,8 @@ def canvas_for_frame(current_canvas, frame_json, zip_file, hd=True):
         hand_left_key_points = np.array(person.hand_left_keypoints_2d).reshape(-1, 3)
         hand_right_key_points = np.array(person.hand_right_keypoints_2d).reshape(-1, 3)
         all_key_points = [pose_key_points, face_key_points, hand_left_key_points, hand_right_key_points]
-        thick = all_thickness[0] if not hd else all_thickness[1]
-        for key_points, seq, colors, thickness in zip(all_key_points, all_seqs, all_colors, thick):
+        thick = ALL_THICKNESS[0] if not hd else ALL_THICKNESS[1]
+        for key_points, seq, colors, thickness in zip(all_key_points, ALL_SEQS, ALL_COLORS, thick):
             for joints, color in zip(seq, colors):
                 points = key_points[joints, :]
                 x = points[:, 0]
@@ -142,6 +111,36 @@ def canvas_for_frame(current_canvas, frame_json, zip_file, hd=True):
     return current_canvas
 
 
+def generate_temp_folder(temp_folder):
+    if not os.path.isdir(temp_folder):
+        os.mkdir(temp_folder)
+    temp_folder = os.path.join(temp_folder, GENERATED_FOLDER_INSIDE_TEMP)
+    if os.path.isdir(temp_folder):
+        remove_all_files_in_folder(temp_folder)
+    else:
+        os.mkdir(temp_folder)
+    return temp_folder
+
+
+def remove_all_files_in_folder(folder):
+    for the_file in os.listdir(folder):
+        file_path = os.path.join(folder, the_file)
+        try:
+            if os.path.isfile(file_path):
+                os.unlink(file_path)
+        except Exception as e:
+            print(e)
+
+
+def write_file(colored_frames, fps, output_type, output_wihout_ext, video_number):
+    name = "{}_{}{}".format(output_wihout_ext, video_number, output_type) \
+        if video_number else "{}{}".format(output_wihout_ext, output_type)
+    fps_string = "{:.2f}".format(fps)
+    io.vwrite(name, colored_frames, inputdict={"-framerate": fps_string},
+              outputdict={"-r": fps_string})  # WRITE VIDEO
+    print("\nwritten to {}".format(name))
+
+
 def combine_videos(outfile, temp_path, delete=False):
     file_names = os.listdir(temp_path)
     file_names.sort(key=lambda _file: [int(s) if s.isdigit() else s for s in re.split(r'(\d+)', _file)])
@@ -152,27 +151,18 @@ def combine_videos(outfile, temp_path, delete=False):
     final_clip = concatenate_videoclips(video_clips)
     final_clip.write_videofile(outfile)
     if delete:
-        for file in total_file_names:
-            os.remove(file)
-        os.rmdir(temp_path)  # TODO not delete always
+        remove_all_files_in_folder(temp_path)
+        os.rmdir(temp_path)
+        super_temp_folder = os.path.split(temp_path)[0]
+        if len(os.listdir(super_temp_folder)) == 0:
+            os.rmdir(super_temp_folder)
 
 
 if __name__ == '__main__':
-    # _path = os.path.join(".", "data")
-    # _video_filename = os.path.join(_path, "2018-05-29_2200_US_KNBC_The_Ellen_DeGeneres_Show_672-1147.mp4")
-    # _json_zip = os.path.join(_path, "2905_small_json.zip")
-    # _out_path = os.path.join(_path, "test_colored_video_small.avi")
-    # _video_filename = os.path.join(_path, "2018-05"
-    #                                     "-29_2200_US_KNBC_The_Ellen_DeGeneres_Show_repaired_compressed_only_video_672"
-    #                                     "-1147_HD.mp4")
-    # _json_zip = os.path.join(_path, "2905_HD_reduced_to_-1_368.zip")
-    # _out_path = os.path.join(_path, "test_colored_video_hd.avi")
-    # color_video(_json_zip, _video_filename, _out_path, hd=True, max_frames=100, frame_range=range(500))
-    # combine_videos(os.path.join(_path, "splitted"))
-
     parser = argparse.ArgumentParser(description='Draw the lines given with the json data on to the given video.')
     parser.add_argument("videofile", type=argparse.FileType(mode="r"), help="the video file to write on")
-    parser.add_argument("json", type=argparse.FileType(mode="r"), help="the zip of json files with the data for each frame")
+    parser.add_argument("json", type=argparse.FileType(mode="r"),
+                        help="the zip of json files with the data for each frame")
     parser.add_argument("outfile", help='the output file')
     parser.add_argument("-t --temp", metavar='tempfolder', dest="temp", help="folder for saving the temp files")
     args = parser.parse_args()
