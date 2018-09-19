@@ -7,6 +7,7 @@ import os
 import re
 import argparse
 import tempfile
+import atexit
 import sys
 from skvideo import io
 from moviepy.editor import VideoFileClip, concatenate_videoclips
@@ -78,7 +79,7 @@ def color_video(frames_json_zip, vid_file, out_file, temp_folder, max_frames=Non
     if len(colored_frames) > 0:
         colored_frames = np.array(colored_frames)
         video_number = video_number + 1 if splitted else None
-        write_file(colored_frames, fps, output_type, temp_name, video_number)
+        write_file(colored_frames, fps, output_type, temp_name if splitted else output_without_ext, video_number)
     if splitted:
         combine_videos(out_file, temp_folder, True)
 
@@ -116,6 +117,11 @@ def generate_temp_folder(temp_folder):
         os.mkdir(temp_folder)
     elif len(os.listdir(temp_folder)) > 0:
         temp_folder = tempfile.mkdtemp(dir=temp_folder)
+
+    def delete_temp():
+        remove_all_files_in_folder(temp_folder)
+        os.rmdir(temp_folder)
+    atexit.register(delete_temp)
     return temp_folder
 
 
@@ -167,4 +173,4 @@ if __name__ == '__main__':
         exit(-1)
     if not temp:
         temp = tempfile.mkdtemp()
-    color_video(json_zip, video, out, temp_folder=temp, max_frames=100, frame_range=range(500))
+    color_video(json_zip, video, out, temp_folder=temp, max_frames=100)
