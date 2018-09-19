@@ -165,6 +165,8 @@ if __name__ == '__main__':
                         help="the zip of json files with the data for each frame")
     parser.add_argument("outfile", help='the output file')
     parser.add_argument("-t --temp", metavar='tempfolder', dest="temp", help="folder for saving the temp files")
+    parser.add_argument("--maxframes", metavar="maxframes", type=int, default=100,
+                        help="maximal number of frames before splitting the video sequence - default to 100")
     args = parser.parse_args()
     video, json_zip, out, temp = args.videofile.name, args.json.name, args.outfile, args.temp
     _, out_extension = os.path.splitext(out)
@@ -173,4 +175,4 @@ if __name__ == '__main__':
         exit(-1)
     if not temp:
         temp = tempfile.mkdtemp()
-    color_video(json_zip, video, out, temp_folder=temp, max_frames=100)
+    color_video(json_zip, video, out, temp_folder=temp, max_frames=args.maxframes)
