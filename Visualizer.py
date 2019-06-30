@@ -38,44 +38,54 @@ ALL_SEQS = [POSE_SEQ, FACE_SEQ, HAND_SEQ, HAND_SEQ]
 ALL_COLORS = [POSE_COLORS, FACE_COLORS, HAND_COLORS, HAND_COLORS]
 
 
-def color_video(frames_json_zip, vid_file, out_file, temp_folder, max_frames=None, frame_range=None):
+def color_video(frames_json_folder, vid_file, out_file, temp_folder, max_frames=None, frame_range=None):
+    """
+    Create a video from the vid_file with the poses given in the frames_json_folder colored on it
+    Args:
+        frames_json_folder(str): path to folder of json files (might me a zip folder)
+        vid_file(str): path to the video file
+        out_file(str): filename of the output video
+        temp_folder(str): path to the temp folder to store videos in in intermediate steps
+        max_frames(int): the maximum number of frames before the video is splitted during the process
+        frame_range(Range): the range of frames which should be used to write the new video
+    """
     video_capture = cv2.VideoCapture(vid_file)
     output_without_ext, output_type = os.path.splitext(out_file)
     frame_count = int(video_capture.get(cv2.CAP_PROP_FRAME_COUNT))
     fps = video_capture.get(cv2.CAP_PROP_FPS)
     colored_frames = []
-    with zipfile.ZipFile(frames_json_zip) as zip_file:
-        json_files = [file for file in zip_file.namelist() if file.endswith(".json")]
-        json_files.sort()
-        json_count = len(json_files)
-        frame_count = min(frame_count, json_count)
-        splitted = max_frames and max_frames < frame_count
-        if splitted:
-            temp_folder = generate_temp_folder(temp_folder)
-        temp_name = os.path.join(temp_folder, os.path.basename(output_without_ext))
-        json_files = json_files[:frame_count]
-        enumerating = enumerate(json_files) if not frame_range \
-            else zip(frame_range, json_files[frame_range.start:frame_range.stop:frame_range.step])
-        if frame_range:
-            video_capture.set(cv2.CAP_PROP_POS_FRAMES, frame_range.start)
-        video_number = None
-        for i, file_name in enumerating:
-            if i % 10 == 0:
-                print("{}/{} frames ready       ".format(i, frame_count), end='\r')
-                sys.stdout.flush()
-            video_number = (i + 1) // max_frames if max_frames else None
-            ret, canvas = video_capture.read()
-            if canvas is None:
-                print("")
-                print("No canvas for file: ", file_name)
-                break
-            written_canvas = canvas_for_frame(canvas, file_name, zip_file)
-            canvas = cv2.addWeighted(canvas, 0.1, written_canvas, 0.9, 0)
-            colored_frames.append(canvas[:, :, [2, 1, 0]])
-            if max_frames and (i + 1) % max_frames == 0 and max_frames != frame_count:
-                colored_frames = np.array(colored_frames)
-                write_file(colored_frames, fps, output_type, temp_name, video_number)
-                colored_frames = []
+    json_files = get_json_files_from_folder(frames_json_folder)
+    json_count = len(json_files)
+    frame_count = min(frame_count, json_count)
+    splitted = max_frames and max_frames < frame_count
+    if splitted:
+        temp_folder = generate_temp_folder(temp_folder)
+    temp_name = os.path.join(temp_folder, os.path.basename(output_without_ext))
+    json_files = json_files[:frame_count]
+    enumerating = enumerate(json_files) if frame_range is None \
+        else zip(frame_range, json_files[frame_range.start:frame_range.stop:frame_range.step])
+    if frame_range is not None:
+        video_capture.set(cv2.CAP_PROP_POS_FRAMES, frame_range.start)
+    video_number = None
+    for i, file_name in enumerating:
+        if i % 10 == 0:
+            print("{}/{} frames ready       ".format(i, frame_count), end='\r')
+            sys.stdout.flush()
+        video_number = (i + 1) // max_frames if max_frames else None
+        canvas = None
+        for j in range(frame_range.step):
+            _, canvas = video_capture.read()
+        if canvas is None:
+            print("")
+            print("No canvas for file: ", file_name)
+            break
+        written_canvas = canvas_for_frame(canvas, file_name, frames_json_folder)
+        canvas = cv2.addWeighted(canvas, 0.1, written_canvas, 0.9, 0)
+        colored_frames.append(canvas[:, :, [2, 1, 0]])
+        if max_frames and (i + 1) % max_frames == 0 and max_frames != frame_count:
+            colored_frames = np.array(colored_frames)
+            write_file(colored_frames, fps, output_type, temp_name, video_number)
+            colored_frames = []
     if len(colored_frames) > 0:
         colored_frames = np.array(colored_frames)
         video_number = video_number + 1 if splitted else None
@@ -84,7 +94,19 @@ def color_video(frames_json_zip, vid_file, out_file, temp_folder, max_frames=Non
         combine_videos(out_file, temp_folder, True)
 
 
-def canvas_for_frame(current_canvas, frame_json, zip_file):
+def get_json_files_from_folder(frames_json_folder):
+    _, ext = os.path.splitext(frames_json_folder)
+    json_ext = ".json"
+    if ext == ".zip":
+        with zipfile.ZipFile(frames_json_folder) as zip_file:
+            json_files = [file for file in zip_file.namelist() if file.endswith(json_ext)]
+    else:
+        json_files = [file for file in os.listdir(frames_json_folder) if file.endswith(json_ext)]
+    json_files.sort()
+    return json_files
+
+
+def canvas_for_frame(current_canvas, frame_json, frames_json_zip):
     hd = current_canvas.shape[1] > HD_THRESHOLD
     with zip_file.open(frame_json, "r") as json_file:
         json_obj = json.loads(json_file.read().decode("utf-8"), object_hook=lambda d: Namespace(**d))
