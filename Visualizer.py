@@ -11,15 +11,44 @@ import atexit
 import sys
 from skvideo import io
 from moviepy.editor import VideoFileClip, concatenate_videoclips
+import enum
+
+
+class OpenposeOutputFormat(enum.Enum):
+    COCO = "coco",
+    BODY_25 = "body_25"
 
 
 HD_THRESHOLD = 1300
+# line thickness for different body parts for Non-HD and HD
 ALL_THICKNESS = [[2, 1, 2, 2], [8, 4, 6, 6]]
-POSE_SEQ = [(1, 2), (1, 5), (2, 3), (3, 4), (5, 6), (6, 7), (1, 8), (8, 9), (9, 10),
-            (1, 11), (11, 12), (12, 13), (1, 0), (0, 14), (14, 16), (0, 15), (15, 17)]
-POSE_COLORS = [[255, 0, 85], [255, 0, 0], [255, 85, 0], [255, 170, 0], [255, 255, 0], [170, 255, 0]] \
-              + [[85, 255, 0], [0, 255, 0], [0, 255, 85], [0, 255, 170], [0, 255, 255], [0, 170, 255]] \
-              + [[0, 85, 255], [0, 0, 255], [255, 0, 170], [170, 0, 255], [255, 0, 255]]
+# PoseConnection and colors can be found here
+# https://github.com/CMU-Perceptual-Computing-Lab/openpose/blob/master/include/openpose/pose/poseParametersRender.hpp
+# but they have to be corrected at least for B25
+# Pose sequence (the connected keypoints) in COCO
+POSE_SEQ_COCO = [(1, 2), (1, 5), (2, 3), (3, 4), (5, 6), (6, 7), (1, 8), (8, 9), (9, 10),
+                 (1, 11), (11, 12), (12, 13), (1, 0), (0, 14), (14, 16), (0, 15), (15, 17)]
+# Pose colors for COCO
+POSE_COLORS_COCO = [[255, 0, 85], [255, 0, 0], [255, 85, 0], [255, 170, 0],
+                    [255, 255, 0], [170, 255, 0], [85, 255, 0], [0, 255, 0],
+                    [0, 255, 85], [0, 255, 170], [0, 255, 255], [0, 170, 255],
+                    [0, 85, 255], [0, 0, 255], [255, 0, 170], [170, 0, 255], [255, 0, 255]]
+# Pose sequence (the connected keypoints) in BODY_25
+POSE_SEQ_B25 = [(1, 8), (1, 2), (1, 5), (2, 3),
+                (3, 4), (5, 6), (6, 7), (8, 9),
+                (9, 10), (10, 11), (8, 12), (12, 13),
+                (13, 14), (1, 0), (0, 15), (15, 17),
+                (0, 16), (16, 18), (14, 19), (19, 20),
+                (14, 21), (11, 22), (22, 23), (11, 24)]
+# Pose colors for BODY_25
+POSE_COLORS_B25 = [[255, 0, 85], [255, 0, 0], [255, 85, 0], [255, 170, 0],
+                   [255, 255, 0], [170, 255, 0], [85, 255, 0], [0, 255, 0],
+                   [255, 0, 0], [0, 255, 85], [0, 255, 170], [0, 255, 255],
+                   [0, 170, 255], [0, 85, 255], [0, 0, 255], [255, 0, 170],
+                   [170, 0, 255], [255, 0, 255], [85, 0, 255], [0, 0, 255],
+                   [0, 0, 255], [0, 0, 255], [0, 255, 255], [0, 255, 255], [0, 255, 255]]
+
+# Face sequences (the connected keypoints) for the old and the new format
 FACE_SEQ = list(zip(range(16), range(1, 17))) + list(zip(range(17, 21), range(18, 22))) \
            + list(zip(range(22, 26), range(23, 27))) + list(zip(range(27, 30), range(28, 31))) \
            + list(zip(range(31, 35), range(32, 36))) + list(zip(range(36, 41), range(37, 42))) \
@@ -34,11 +63,15 @@ HAND_COLORS = [[100, 100, 100], [100, 0, 0], [150, 0, 0], [200, 0, 0], [255, 0, 
               + [[150, 150, 0], [200, 200, 0], [255, 255, 0], [0, 100, 50], [0, 150, 75], [0, 200, 100]] \
               + [[0, 255, 125], [0, 50, 100], [0, 75, 150], [0, 100, 200], [0, 125, 255], [100, 0, 100]] \
               + [[150, 0, 150], [200, 0, 200], [255, 0, 255]]
-ALL_SEQS = [POSE_SEQ, FACE_SEQ, HAND_SEQ, HAND_SEQ]
-ALL_COLORS = [POSE_COLORS, FACE_COLORS, HAND_COLORS, HAND_COLORS]
+# the combination of all seqs for COCO and BODY_25 format
+ALL_SEQS = [[POSE_SEQ_COCO, FACE_SEQ, HAND_SEQ, HAND_SEQ],
+            [POSE_SEQ_B25, FACE_SEQ, HAND_SEQ, HAND_SEQ]]
+ALL_COLORS = [[POSE_COLORS_COCO, FACE_COLORS, HAND_COLORS, HAND_COLORS],
+              [POSE_COLORS_B25, FACE_COLORS, HAND_COLORS, HAND_COLORS]]
 
 
-def color_video(frames_json_folder, vid_file, out_file, temp_folder, max_frames=None, frame_range=None):
+def color_video(frames_json_folder, vid_file, out_file, temp_folder, out_images=None, max_frames=None,
+                frame_range=None, openpose_format=OpenposeOutputFormat.BODY_25):
     """
     Create a video from the vid_file with the poses given in the frames_json_folder colored on it
     Args:
@@ -48,11 +81,13 @@ def color_video(frames_json_folder, vid_file, out_file, temp_folder, max_frames=
         temp_folder(str): path to the temp folder to store videos in in intermediate steps
         max_frames(int): the maximum number of frames before the video is splitted during the process
         frame_range(Range): the range of frames which should be used to write the new video
+        openpose_format(OpenposeOutputFormat): the used output format of openpose
     """
     video_capture = cv2.VideoCapture(vid_file)
     output_without_ext, output_type = os.path.splitext(out_file)
     frame_count = int(video_capture.get(cv2.CAP_PROP_FRAME_COUNT))
     fps = video_capture.get(cv2.CAP_PROP_FPS)
+    all_colored_frames = []
     colored_frames = []
     json_files = get_json_files_from_folder(frames_json_folder)
     json_count = len(json_files)
@@ -68,7 +103,7 @@ def color_video(frames_json_folder, vid_file, out_file, temp_folder, max_frames=
         video_capture.set(cv2.CAP_PROP_POS_FRAMES, frame_range.start)
     video_number = None
     for i, file_name in enumerating:
-        if i % 10 == 0:
+        if i % 10 + 1 == 0:
             print("{}/{} frames ready       ".format(i, frame_count), end='\r')
             sys.stdout.flush()
         video_number = (i + 1) // max_frames if max_frames else None
@@ -79,8 +114,9 @@ def color_video(frames_json_folder, vid_file, out_file, temp_folder, max_frames=
             print("")
             print("No canvas for file: ", file_name)
             break
-        written_canvas = canvas_for_frame(canvas, file_name, frames_json_folder)
+        written_canvas = canvas_for_frame(canvas, file_name, frames_json_folder, openpose_format=openpose_format)
         canvas = cv2.addWeighted(canvas, 0.1, written_canvas, 0.9, 0)
+        all_colored_frames.append((file_name, canvas))
         colored_frames.append(canvas[:, :, [2, 1, 0]])
         if max_frames and (i + 1) % max_frames == 0 and max_frames != frame_count:
             colored_frames = np.array(colored_frames)
@@ -90,13 +126,20 @@ def color_video(frames_json_folder, vid_file, out_file, temp_folder, max_frames=
         colored_frames = np.array(colored_frames)
         video_number = video_number + 1 if splitted else None
         write_file(colored_frames, fps, output_type, temp_name if splitted else output_without_ext, video_number)
+    if out_images is not None:
+        for json_name, frame in all_colored_frames:
+            name, _ = os.path.splitext(json_name)
+            name = name if not name.endswith("_keypoints") else name[:-10]
+            name += "_rendered.png"
+            cv2.imwrite(os.path.join(out_images, name), frame)
+
     if splitted:
         combine_videos(out_file, temp_folder, True)
 
 
 def get_json_files_from_folder(frames_json_folder):
-    _, ext = os.path.splitext(frames_json_folder)
     json_ext = ".json"
+    _, ext = os.path.splitext(frames_json_folder)
     if ext == ".zip":
         with zipfile.ZipFile(frames_json_folder) as zip_file:
             json_files = [file for file in zip_file.namelist() if file.endswith(json_ext)]
@@ -106,10 +149,19 @@ def get_json_files_from_folder(frames_json_folder):
     return json_files
 
 
-def canvas_for_frame(current_canvas, frame_json, frames_json_zip):
+def canvas_for_frame(current_canvas, frame_json, frames_json_folder, openpose_format=OpenposeOutputFormat.BODY_25):
+    def load_json_from_file(json_string):
+        return json.loads(json_string, object_hook=lambda d: Namespace(**d))
+
     hd = current_canvas.shape[1] > HD_THRESHOLD
-    with zip_file.open(frame_json, "r") as json_file:
-        json_obj = json.loads(json_file.read().decode("utf-8"), object_hook=lambda d: Namespace(**d))
+    _, ext = os.path.splitext(frames_json_folder)
+    if ext == ".zip":
+        zip_file = zipfile.ZipFile(frames_json_folder)
+        with zip_file.open(frame_json, "r") as json_file:
+            json_obj = load_json_from_file(json_file.read().decode("utf-8"))
+    else:
+        with open(os.path.join(frames_json_folder, frame_json), "r", encoding="utf-8") as json_file:
+            json_obj = load_json_from_file(json_file.read())
     canvas_copy = current_canvas.copy()
     people = json_obj.people
     for person in people:
@@ -119,7 +171,11 @@ def canvas_for_frame(current_canvas, frame_json, frames_json_zip):
         hand_right_key_points = np.array(person.hand_right_keypoints_2d).reshape(-1, 3)
         all_key_points = [pose_key_points, face_key_points, hand_left_key_points, hand_right_key_points]
         thick = ALL_THICKNESS[0] if not hd else ALL_THICKNESS[1]
-        for key_points, seq, colors, thickness in zip(all_key_points, ALL_SEQS, ALL_COLORS, thick):
+        format_index = int(openpose_format == OpenposeOutputFormat.BODY_25)
+        for key_points, seq, colors, thickness in zip(all_key_points,
+                                                      ALL_SEQS[format_index],
+                                                      ALL_COLORS[format_index],
+                                                      thick):
             for joints, color in zip(seq, colors):
                 points = key_points[joints, :]
                 x = points[:, 0]
@@ -144,6 +200,7 @@ def generate_temp_folder(temp_folder):
         if os.path.exists(temp_folder):
             remove_all_files_in_folder(temp_folder)
             os.rmdir(temp_folder)
+
     atexit.register(delete_temp)
     return temp_folder
 
@@ -184,21 +241,34 @@ def combine_videos(outfile, temp_path, delete=False):
 if __name__ == '__main__':
     parser = argparse.ArgumentParser(description='Draw the lines given with the json data on to the given video.')
     parser.add_argument("videofile", type=argparse.FileType(mode="r"), help="the video file to write on")
-    parser.add_argument("json", type=argparse.FileType(mode="r"),
-                        help="the zip of json files with the data for each frame")
-    parser.add_argument("outfile", help='the output file')
+    parser.add_argument("json", help="the folder of json files with the data for each frame (might be zipped)")
+    parser.add_argument("outfile", help='the output video file')
+    parser.add_argument("-oi --out_images", dest="out_images", help='the output folder for the images')
+    parser.add_argument("-coco", dest="coco_format",
+                        help='add if the COCO openpose format is used', action='store_true')
     parser.add_argument("-t --temp", metavar='tempfolder', dest="temp", help="folder for saving the temp files")
     parser.add_argument("--maxframes", metavar="maxframes", type=int, default=100,
                         help="maximal number of frames before splitting the video sequence - default to 100")
     args = parser.parse_args()
-    video, json_zip, out, temp = args.videofile.name, args.json.name, args.outfile, args.temp
-    _, out_extension = os.path.splitext(out)
+    video, json_folder, out_video_path, out_images_path, use_coco_format, temp \
+        = args.videofile.name, args.json, args.outfile, args.out_images, args.coco_format, args.temp
+
+    if not os.path.exists(json_folder):
+        print("Json folder not found!")
+        exit(-1)
+
+    _, out_extension = os.path.splitext(out_video_path)
     if out_extension != ".mp4":
         print("So far only .mp4 extension allowed for outfile!")
         exit(-1)
+    out_folder, _ = os.path.split(out_video_path)
+    os.makedirs(out_folder, exist_ok=True)
+    if out_images_path is not None:
+        os.makedirs(out_images_path, exist_ok=True)
+
     if not temp:
         temp = tempfile.mkdtemp()
-    out_folder, _ = os.path.split(out)
-    if not os.path.exists(out_folder):
-        os.mkdir(out_folder)
-    color_video(json_zip, video, out, temp_folder=temp, max_frames=args.maxframes, frame_range=range(110))
+
+    used_format = OpenposeOutputFormat.COCO if use_coco_format else OpenposeOutputFormat.BODY_25
+    color_video(json_folder, video, out_video_path, temp_folder=temp, out_images=out_images_path,
+                max_frames=args.maxframes, frame_range=range(300), openpose_format=used_format)
