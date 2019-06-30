@@ -79,6 +79,7 @@ def color_video(frames_json_folder, vid_file, out_file, temp_folder, out_images=
         vid_file(str): path to the video file
         out_file(str): filename of the output video
         temp_folder(str): path to the temp folder to store videos in in intermediate steps
+        out_images(str|None): path to folder to store rendered images
         max_frames(int): the maximum number of frames before the video is splitted during the process
         frame_range(Range): the range of frames which should be used to write the new video
         openpose_format(OpenposeOutputFormat): the used output format of openpose
@@ -127,14 +128,19 @@ def color_video(frames_json_folder, vid_file, out_file, temp_folder, out_images=
         video_number = video_number + 1 if splitted else None
         write_file(colored_frames, fps, output_type, temp_name if splitted else output_without_ext, video_number)
     if out_images is not None:
-        for json_name, frame in all_colored_frames:
-            name, _ = os.path.splitext(json_name)
-            name = name if not name.endswith("_keypoints") else name[:-10]
-            name += "_rendered.png"
-            cv2.imwrite(os.path.join(out_images, name), frame)
-
+        write_out_images(out_images, all_colored_frames)
     if splitted:
         combine_videos(out_file, temp_folder, True)
+
+
+def write_out_images(out_images_path, all_colored_frames):
+    for json_name, frame in all_colored_frames:
+        name, _ = os.path.splitext(json_name)
+        _, name = os.path.split(name)
+        name = name if not name.endswith("_keypoints") else name[:-10]
+        name += "_rendered.png"
+        path = os.path.join(out_images_path, name)
+        cv2.imwrite(path, frame)
 
 
 def get_json_files_from_folder(frames_json_folder):
@@ -183,9 +189,10 @@ def canvas_for_frame(current_canvas, frame_json, frames_json_folder, openpose_fo
                 c = points[:, 2]
                 if any(c < 0.05):
                     continue
-                cv2.line(canvas_copy, (int(x[0]), int(y[0])), (int(x[1]), int(y[1])), color, thickness)
+                color = [color[2], color[1], color[0]]
+                cv2.line(canvas_copy, (int(x[0]), int(y[0])), (int(x[1]), int(y[1])), color=color, thickness=thickness)
                 point_size = thickness + (3 if not hd else 12)
-                cv2.line(canvas_copy, (int(x[0]), int(y[0])), (int(x[0]), int(y[0])), color, thickness=point_size)
+                cv2.line(canvas_copy, (int(x[0]), int(y[0])), (int(x[0]), int(y[0])), color=color, thickness=point_size)
     current_canvas = cv2.addWeighted(current_canvas, 0.1, canvas_copy, 0.9, 0)
     return current_canvas
 
@@ -271,4 +278,4 @@ if __name__ == '__main__':
 
     used_format = OpenposeOutputFormat.COCO if use_coco_format else OpenposeOutputFormat.BODY_25
     color_video(json_folder, video, out_video_path, temp_folder=temp, out_images=out_images_path,
-                max_frames=args.maxframes, frame_range=range(300), openpose_format=used_format)
+                max_frames=args.maxframes, openpose_format=used_format)
