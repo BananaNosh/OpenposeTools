@@ -119,8 +119,9 @@ def generate_temp_folder(temp_folder):
         temp_folder = tempfile.mkdtemp(dir=temp_folder)
 
     def delete_temp():
-        remove_all_files_in_folder(temp_folder)
-        os.rmdir(temp_folder)
+        if os.path.exists(temp_folder):
+            remove_all_files_in_folder(temp_folder)
+            os.rmdir(temp_folder)
     atexit.register(delete_temp)
     return temp_folder
 
