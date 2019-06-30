@@ -175,4 +175,7 @@ if __name__ == '__main__':
         exit(-1)
     if not temp:
         temp = tempfile.mkdtemp()
-    color_video(json_zip, video, out, temp_folder=temp, max_frames=args.maxframes)
+    out_folder, _ = os.path.split(out)
+    if not os.path.exists(out_folder):
+        os.mkdir(out_folder)
+    color_video(json_zip, video, out, temp_folder=temp, max_frames=args.maxframes, frame_range=range(110))
