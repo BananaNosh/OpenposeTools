@@ -32,3 +32,4 @@ optional arguments:
                         sequence - default to 100
 
 ```
+*For now a continuation of this project is found at [RedHenLab/OpenposeTools](https://github.com/RedHenLab/OpenposeTools)*
