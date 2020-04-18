@@ -252,7 +252,7 @@ if __name__ == '__main__':
     parser.add_argument("outfile", help='the output video file')
     parser.add_argument("-oi --out_images", dest="out_images", help='the output folder for the images')
     parser.add_argument("-coco", dest="coco_format",
-                        help='add if the COCO openpose format is used', action='store_true')
+                        help='add if the COCO openpose format is used instead of body_25', action='store_true')
     parser.add_argument("-t --temp", metavar='tempfolder', dest="temp", help="folder for saving the temp files")
     parser.add_argument("--maxframes", metavar="maxframes", type=int, default=100,
                         help="maximal number of frames before splitting the video sequence - default to 100")
