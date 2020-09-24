@@ -98,9 +98,9 @@ def color_video(frames_json_folder, vid_file, out_file, temp_folder, out_images=
         temp_folder = generate_temp_folder(temp_folder)
     temp_name = os.path.join(temp_folder, os.path.basename(output_without_ext))
     json_files = json_files[:frame_count]
-    enumerating = enumerate(json_files) if frame_range is None \
-        else zip(frame_range, json_files[frame_range.start:frame_range.stop:frame_range.step])
-    if frame_range is not None:
+    frame_range = frame_range or range(frame_count)
+    enumerating = zip(frame_range, json_files[frame_range.start:frame_range.stop:frame_range.step])
+    if frame_range.start > 0:
         video_capture.set(cv2.CAP_PROP_POS_FRAMES, frame_range.start)
     video_number = None
     for i, file_name in enumerating:
