@@ -12,8 +12,9 @@ import sys
 from skvideo import io
 from moviepy.editor import VideoFileClip, concatenate_videoclips
 import enum
-import subprocess
 import time
+import subprocess
+
 
 class OpenposeOutputFormat(enum.Enum):
     COCO = "coco",
@@ -71,8 +72,63 @@ ALL_COLORS = [[POSE_COLORS_COCO, FACE_COLORS, HAND_COLORS, HAND_COLORS],
               [POSE_COLORS_B25, FACE_COLORS, HAND_COLORS, HAND_COLORS]]
 
 
+##################################################################################################################
+
+def main():
+    parser = argparse.ArgumentParser(description='Draw the lines given with the json data on to the given video.')
+    parser.add_argument("videofile", type=argparse.FileType(mode="r"), help="the video file to write on")
+    parser.add_argument("json", help="the folder of json files with the data for each frame (might be zipped)")
+    parser.add_argument("--outfile", help='the output video file (.mp4-format). If not specified, it will only display the video')
+    parser.add_argument("-oi --out_images", dest="out_images", help='the output folder for the images')
+    parser.add_argument("-coco", dest="coco_format",
+                        help='add if the COCO openpose format is used instead of body_25', action='store_true')
+    parser.add_argument("-t --temp", metavar='tempfolder', dest="temp", help="folder for saving the temp files")
+    parser.add_argument("--maxframes", metavar="maxframes", type=int, default=100,
+                        help="maximal number of frames before splitting the video sequence - default to 100")
+    parser.add_argument('--noBG', help='Include to show skeleton only.', action='store_true')
+    parser.add_argument('--noFPS', help='Include to not show the FPS.', action='store_true')
+    args = parser.parse_args()
+    video, json_folder, out_video_path, out_images_path, use_coco_format, temp \
+        = args.videofile.name, args.json, args.outfile, args.out_images, args.coco_format, args.temp
+    no_bg, no_fps = args.noBG, args.noFPS
+
+    if not os.path.exists(json_folder):
+        print("Json folder not found!")
+        exit(-1)
+
+    if out_video_path:
+        _, out_extension = os.path.splitext(out_video_path)
+        if out_extension != ".mp4":
+            print("So far only .mp4 extension allowed for outfile!")
+            exit(-1)
+        out_folder, _ = os.path.split(out_video_path)
+        os.makedirs(out_folder, exist_ok=True)
+    if out_images_path is not None:
+        os.makedirs(out_images_path, exist_ok=True)
+
+    if not temp:
+        temp = tempfile.mkdtemp()
+
+    used_format = OpenposeOutputFormat.COCO if use_coco_format else OpenposeOutputFormat.BODY_25
+    color_video(json_folder, video, out_video_path, temp_folder=temp, out_images=out_images_path,
+                max_frames=args.maxframes, openpose_format=used_format, no_bg=no_bg, no_fps=no_fps)
+
+
+
+
+
+import matplotlib.pyplot as plt
+import matplotlib.colors as mplcolors
+def imshow(img, title='', hsv=False):
+    if hsv: img = mplcolors.hsv_to_rgb(img)
+    plt.imshow(img, cmap='Greys_r')
+    if title or title==0: plt.title(title)
+    plt.show()
+
+
+
 def color_video(frames_json_folder, vid_file, out_file, temp_folder, out_images=None, max_frames=None,
-                frame_range=None, openpose_format=OpenposeOutputFormat.BODY_25, no_bg=False):
+                frame_range=None, openpose_format=OpenposeOutputFormat.BODY_25, no_bg=False, no_fps=False):
     """
     Create a video from the vid_file with the poses given in the frames_json_folder colored on it
     Args:
@@ -86,7 +142,10 @@ def color_video(frames_json_folder, vid_file, out_file, temp_folder, out_images=
         openpose_format(OpenposeOutputFormat): the used output format of openpose
     """
     video_capture = cv2.VideoCapture(vid_file)
-    output_without_ext, output_type = os.path.splitext(out_file)
+    if out_file:
+        output_without_ext, output_type = os.path.splitext(out_file)
+    else:
+        output_without_ext = os.path.splitext(vid_file)[0]
     frame_count = int(video_capture.get(cv2.CAP_PROP_FRAME_COUNT))
     fps_string = subprocess.Popen('ffprobe -v 0 -of csv=p=0 -select_streams v:0 -show_entries stream=r_frame_rate'.split(' ')+[vid_file], stdout=subprocess.PIPE, stderr=subprocess.STDOUT).communicate()[0].decode('UTF-8')[:-1]
     if fps_string != '0/0':
@@ -108,6 +167,7 @@ def color_video(frames_json_folder, vid_file, out_file, temp_folder, out_images=
     if frame_range.start > 0:
         video_capture.set(cv2.CAP_PROP_POS_FRAMES, frame_range.start)
     video_number = None
+    fps_time = 0
     for i, file_name in enumerating:
         if i % 10 + 1 == 0:
             print("{}/{} frames ready       ".format(i, frame_count), end='\r')
@@ -124,21 +184,35 @@ def color_video(frames_json_folder, vid_file, out_file, temp_folder, out_images=
             break
         written_canvas = canvas_for_frame(canvas, file_name, frames_json_folder, openpose_format=openpose_format)
         canvas = cv2.addWeighted(canvas, 0.1, written_canvas, 0.9, 0)
-        all_colored_frames.append((file_name, canvas))
-        colored_frames.append(canvas[:, :, [2, 1, 0]])
-        if max_frames and (i + 1) % max_frames == 0 and max_frames != frame_count:
+        if (not out_file) and (out_images is None):
+            time.sleep(max(0, 1/(fps*1.02) - (time.time()-fps_time))) #without the *1.02 it's too slow
+            if not no_fps:
+                cv2.putText(canvas, "FPS: %f" % (1.0 / (time.time() - fps_time)), (10, 10), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 255, 0), 2)
+                # print(f'Pause: {(time.time() - fps_time)*1000}, FPS: {(1.0 / (time.time() - fps_time))}, wished FPS: {fps}')
+            cv2.imshow('tf-pose-estimation result', canvas)
+            fps_time = time.time()
+            if cv2.waitKey(1) == 27:
+                break
+        else:
+            all_colored_frames.append((file_name, canvas))
+            #imshow(cv2.cvtColor(canvas, cv2.COLOR_BGR2RGB))
+            colored_frames.append(canvas[:, :, [2, 1, 0]])
+            if max_frames and (i + 1) % max_frames == 0 and max_frames != frame_count:
+                colored_frames = np.array(colored_frames)
+                write_file(colored_frames, fps, output_type, temp_name, video_number)
+                colored_frames = []
+    if out_file:
+        if len(colored_frames) > 0:
             colored_frames = np.array(colored_frames)
-            write_file(colored_frames, fps, output_type, temp_name, video_number)
-            colored_frames = []
-    if len(colored_frames) > 0:
-        colored_frames = np.array(colored_frames)
-        video_number = video_number + 1 if splitted else None
-        write_file(colored_frames, fps, output_type, temp_name if splitted else output_without_ext, video_number)
+            video_number = video_number + 1 if splitted else None
+            write_file(colored_frames, fps, output_type, temp_name if splitted else output_without_ext, video_number)
+        if splitted:
+            combine_videos(out_file, temp_folder, True)
     if out_images is not None:
         write_out_images(out_images, all_colored_frames)
-    if splitted:
-        combine_videos(out_file, temp_folder, True)
 
+    else:
+        cv2.destroyAllWindows()
 
 def write_out_images(out_images_path, all_colored_frames):
     for json_name, frame in all_colored_frames:
@@ -253,37 +327,4 @@ def combine_videos(outfile, temp_path, delete=False):
 
 
 if __name__ == '__main__':
-    parser = argparse.ArgumentParser(description='Draw the lines given with the json data on to the given video.')
-    parser.add_argument("videofile", type=argparse.FileType(mode="r"), help="the video file to write on")
-    parser.add_argument("json", help="the folder of json files with the data for each frame (might be zipped)")
-    parser.add_argument("outfile", help='the output video file')
-    parser.add_argument("-oi --out_images", dest="out_images", help='the output folder for the images')
-    parser.add_argument("-coco", dest="coco_format",
-                        help='add if the COCO openpose format is used instead of body_25', action='store_true')
-    parser.add_argument("-t --temp", metavar='tempfolder', dest="temp", help="folder for saving the temp files")
-    parser.add_argument("--maxframes", metavar="maxframes", type=int, default=100,
-                        help="maximal number of frames before splitting the video sequence - default to 100")
-    parser.add_argument('--noBG', help='Include to show skeleton only.', action='store_true')
-    args = parser.parse_args()
-    video, json_folder, out_video_path, out_images_path, use_coco_format, temp, no_bg \
-        = args.videofile.name, args.json, args.outfile, args.out_images, args.coco_format, args.temp, args.noBG
-
-    if not os.path.exists(json_folder):
-        print("Json folder not found!")
-        exit(-1)
-
-    _, out_extension = os.path.splitext(out_video_path)
-    if out_extension != ".mp4":
-        print("So far only .mp4 extension allowed for outfile!")
-        exit(-1)
-    out_folder, _ = os.path.split(out_video_path)
-    os.makedirs(out_folder, exist_ok=True)
-    if out_images_path is not None:
-        os.makedirs(out_images_path, exist_ok=True)
-
-    if not temp:
-        temp = tempfile.mkdtemp()
-
-    used_format = OpenposeOutputFormat.COCO if use_coco_format else OpenposeOutputFormat.BODY_25
-    color_video(json_folder, video, out_video_path, temp_folder=temp, out_images=out_images_path,
-                max_frames=args.maxframes, openpose_format=used_format, no_bg=no_bg)
+    main()
