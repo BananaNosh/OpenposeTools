@@ -5,7 +5,7 @@ A tool for drawing coloured lines on to a video file according to the openpose f
 ### Install
 After cloning and setting up an environment call:
 ```bash
-pip install -r requirements
+pip install -r requirements.txt
 ```
 ### Usage
 ```bash
